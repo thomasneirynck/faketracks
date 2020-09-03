@@ -11,7 +11,7 @@ const tracksIndexName = 'tracks';
 
 const distanceUnit = 'miles';
 const updateDelta = 2000;
-const speed =  10000; //per hour
+const speed =  100000; //per hour
 
 const esClient = new Client({
     node: 'http://localhost:9200',
