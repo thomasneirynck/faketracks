@@ -11,7 +11,7 @@ const tracksIndexName = 'tracks';
 
 const distanceUnit = 'miles';
 const updateDelta = 2000; //milliseconds
-const speedInUnitsPerHour =  100000; //units / per hour
+const speedInUnitsPerHour =  100000 * 5; //units / per hour
 
 const esClient = new Client({
     node: 'https://localhost:9200',
@@ -117,7 +117,7 @@ async function generateWaypoints() {
             wayPointES = wayPointFeature.geometry.coordinates;
         }
 
-        console.log(`update track: \t${trackId} - ${wayPointES}`)
+        console.log(`\t update track: \t${trackId} - ${wayPointES}`)
 
         const doc = {
             location: wayPointES,
