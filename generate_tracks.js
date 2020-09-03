@@ -10,14 +10,17 @@ const tracksFeatureCollection = JSON.parse(trackRaw);
 const tracksIndexName = 'tracks';
 
 const distanceUnit = 'miles';
-const updateDelta = 2000;
-const speed =  100000; //per hour
+const updateDelta = 2000; //milliseconds
+const speedInUnitsPerHour =  100000; //units / per hour
 
 const esClient = new Client({
-    node: 'http://localhost:9200',
+    node: 'https://localhost:9200',
     auth: {
         username: 'elastic',
         password: 'changeme'
+    },
+    ssl: {
+        rejectUnauthorized: false
     }
 });
 
@@ -26,7 +29,6 @@ function initTrackMeta() {
         track.properties.__length = turf.length(track.geometry, { units: distanceUnit});
         track.properties.__distanceTraveled = 0;
         track.properties.__reset = true;
-
     });
 }
 
@@ -81,7 +83,7 @@ let tickCounter = 0;
 let idCounter = 0;
 async function generateWaypoints() {
 
-    console.log(`[${tickCounter}-------------- GENERATE WAYPOINTS AT TICK ${isoDate()}`);
+    console.log(`[${tickCounter}-------------- GENERATE WAYPOINTS AT TICK ${(new Date()).toISOString()}`);
 
     for (let i = 0; i < tracksFeatureCollection.features.length; i++) {
 
@@ -98,7 +100,7 @@ async function generateWaypoints() {
         } else {
             const delta = timeStamp.getTime() - track.properties.__lastUpdate;
             const deltaInHours = delta / (1000 * 60 * 60);
-            const deltaDistance = deltaInHours * speed;
+            const deltaDistance = deltaInHours * speedInUnitsPerHour;
             const totalDistance = deltaDistance + track.properties.__distanceTraveled;
 
             let targetDistance;
@@ -137,17 +139,6 @@ async function generateWaypoints() {
 
 }
 
-function generateTrackLocation() {
-
-}
-
-function isoDate() {
-    return (new Date()).toISOString();
-}
-
-function calculateTrackLengths() {
-
-}
 
 initTrackMeta();
 generateTracks();
