@@ -1,5 +1,6 @@
 const {Client} = require('@elastic/elasticsearch');
 const fs = require('fs');
+const readline = require('readline');
 const turf = require('@turf/turf');
 
 const trackFileName = 'tracks.json';
@@ -10,11 +11,17 @@ const tracksFeatureCollection = JSON.parse(trackRaw);
 const tracksIndexName = 'tracks';
 
 const distanceUnit = 'miles';
-const updateDelta = 2000; //milliseconds
-const speedInUnitsPerHour =  100000 * 5; //units / per hour
+const updateDelta = 500; //milliseconds
+const speedInUnitsPerHour = 100000 * 5; //units / per hour
+
+const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+});
 
 const esClient = new Client({
-    node: 'https://localhost:9200',
+    node: 'http://localhost:9200',
+    // node: 'https://localhost:9200',
     auth: {
         username: 'elastic',
         password: 'changeme'
@@ -26,61 +33,80 @@ const esClient = new Client({
 
 function initTrackMeta() {
     tracksFeatureCollection.features.forEach((track) => {
-        track.properties.__length = turf.length(track.geometry, { units: distanceUnit});
+        track.properties.__length = turf.length(track.geometry, {units: distanceUnit});
         track.properties.__distanceTraveled = 0;
         track.properties.__reset = true;
     });
 }
 
-
-async function generateTracks() {
-    try {
-        await esClient.ping({
-            // requestTimeout: 1000
-        });
-    } catch (e) {
-        console.error('Cannot reach Elasticsearch', e);
-        throw e;
-    }
-
-    try {
-        await esClient.indices.delete({
-            index: tracksIndexName
-        });
-    } catch (e) {
-        console.warn(e);
-    }
-
-    try {
-        await esClient.indices.create({
-            index: tracksIndexName,
-            body: {
-                mappings: {
-                    "properties": {
-                        'location': {
-                            "type": 'geo_point',
-                            "ignore_malformed": true
-                        },
-                        "entity_id": {
-                            "type": "keyword"
-                        },
-                        "@timestamp": {
-                            "type": "date"
-                        }
+async function recreateIndex() {
+    console.log('Recreate index ' + tracksIndexName);
+    await esClient.indices.create({
+        index: tracksIndexName,
+        body: {
+            mappings: {
+                "properties": {
+                    'location': {
+                        "type": 'geo_point',
+                        "ignore_malformed": true
+                    },
+                    "entity_id": {
+                        "type": "keyword"
+                    },
+                    "@timestamp": {
+                        "type": "date"
                     }
                 }
             }
-        });
-    } catch (e) {
-        console.error(e);
-        throw e;
-    }
+        }
+    });
+}
 
-    generateWaypoints();
+async function setupIndex() {
+
+    return new Promise(async (resolve, reject) => {
+
+        try {
+            await esClient.ping({});
+        } catch (e) {
+            console.error('Cannot reach Elasticsearch', e);
+            reject(e);
+        }
+
+        try {
+
+            const {body} = await esClient.indices.exists({
+                index: tracksIndexName,
+            });
+
+            if (body) {
+                rl.question(`Index ${tracksIndexName} exists. Should delete and recreate? [n|Y]`, async function(response) {
+                    console.log('re', response);
+                    if (response === 'y' || response === 'Y') {
+                        console.log('deleting index ' + tracksIndexName);
+                        await esClient.indices.delete({
+                            index: tracksIndexName
+                        });
+                        await recreateIndex();
+                    } else {
+                        console.log('Retaining existing index');
+                    }
+                    resolve();
+                });
+
+            } else {
+                await recreateIndex();
+                resolve();
+            }
+
+        } catch (e) {
+            console.error(e);
+            reject(e);
+        }
+    });
 }
 
 let tickCounter = 0;
-let idCounter = 0;
 async function generateWaypoints() {
 
     console.log(`[${tickCounter}-------------- GENERATE WAYPOINTS AT TICK ${(new Date()).toISOString()}`);
@@ -125,8 +151,7 @@ async function generateWaypoints() {
             "@timestamp": timeStamp.toISOString(),
         };
 
-        await esClient.create({
-            id: idCounter++,
+        await esClient.index({
             index: tracksIndexName,
             body: doc
         });
@@ -139,6 +164,10 @@ async function generateWaypoints() {
 
 }
 
+async function init() {
+    initTrackMeta();
+    await setupIndex();
+    generateWaypoints();
+}
 
-initTrackMeta();
-generateTracks();
+init();
