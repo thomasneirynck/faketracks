@@ -7,7 +7,8 @@
     "@elastic/elasticsearch": "^7.9.0",
     "@turf/along": "^6.0.1",
     "@turf/length": "^6.0.2",
-    "@turf/turf": "^5.1.6"
+    "@turf/turf": "^5.1.6",
+    "yargs": "^16.0.3"
   },
   "devDependencies": {},
   "scripts": {

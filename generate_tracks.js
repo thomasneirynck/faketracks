@@ -2,17 +2,52 @@ const {Client} = require('@elastic/elasticsearch');
 const fs = require('fs');
 const readline = require('readline');
 const turf = require('@turf/turf');
+const yargs = require('yargs')
 
-const trackFileName = 'tracks.json';
+
+const DEFAULT_TRACKS_JSON = 'tracks.json';
+const DEFAULT_INDEX_NAME = 'tracks';
+const DEFAULT_UPDATE_DELTA = 500;
+const DEFAULT_SPEED = 100000 * 5;
+const distanceUnit = 'miles';
+
+const argv = yargs
+    .option('tracks', {
+        alias: 't',
+        description: 'path to the tracks geojson file. This is a FeatureCollection with only linestrings',
+        type: 'string',
+        default: DEFAULT_TRACKS_JSON,
+    })
+    .option('index', {
+        alias: 'i',
+        description: 'name of the elasticsearch index',
+        type: 'string',
+        default: DEFAULT_INDEX_NAME,
+    })
+    .option('speed', {
+        alias: 's',
+        description: `speed of the track in ${distanceUnit}/hour`,
+        type: 'number',
+        default: DEFAULT_SPEED,
+    })
+    .option('frequency', {
+        alias: 'f',
+        description: `Update delta of the tracks in ms`,
+        type: 'number',
+        default: DEFAULT_UPDATE_DELTA,
+    })
+    .help()
+    .argv;
+
+const trackFileName = argv.tracks;
+const tracksIndexName = argv.index;
+const updateDelta = argv.frequency; //milliseconds
+const speedInUnitsPerHour = argv.speed; //units / per hour
+
 
 const trackRaw = fs.readFileSync(trackFileName, 'utf-8');
 const tracksFeatureCollection = JSON.parse(trackRaw);
 
-const tracksIndexName = 'tracks';
-
-const distanceUnit = 'miles';
-const updateDelta = 500; //milliseconds
-const speedInUnitsPerHour = 100000 * 5; //units / per hour
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -40,7 +75,7 @@ function initTrackMeta() {
 }
 
 async function recreateIndex() {
-    console.log('Recreate index ' + tracksIndexName);
+    console.log(`Create index "${tracksIndexName}"`);
     await esClient.indices.create({
         index: tracksIndexName,
         body: {
@@ -80,10 +115,10 @@ async function setupIndex() {
             });
 
             if (body) {
-                rl.question(`Index ${tracksIndexName} exists. Should delete and recreate? [n|Y]`, async function(response) {
+                rl.question(`Index "${tracksIndexName}" exists. Should delete and recreate? [n|Y]`, async function (response) {
                     console.log('re', response);
                     if (response === 'y' || response === 'Y') {
-                        console.log('deleting index ' + tracksIndexName);
+                        console.log(`Deleting index "${tracksIndexName}"`);
                         await esClient.indices.delete({
                             index: tracksIndexName
                         });
@@ -107,6 +142,7 @@ async function setupIndex() {
 }
 
 let tickCounter = 0;
+
 async function generateWaypoints() {
 
     console.log(`[${tickCounter}-------------- GENERATE WAYPOINTS AT TICK ${(new Date()).toISOString()}`);
