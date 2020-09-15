@@ -38,7 +38,7 @@ const argv = yargs
         default: DEFAULT_UPDATE_DELTA,
     })
     .option('host', {
-        alias :'h',
+        alias: 'h',
         description: 'URL of the elasticsearch server',
         type: 'string',
         default: DEFAULT_HOST,
@@ -75,6 +75,7 @@ async function init() {
     await setupIndex();
     generateWaypoints();
 }
+
 init();
 
 function initTrackMeta() {
@@ -82,30 +83,42 @@ function initTrackMeta() {
         track.properties.__length = turf.length(track.geometry, {units: distanceUnit});
         track.properties.__distanceTraveled = 0;
         track.properties.__reset = true;
+        track.properties.__lastWayPoint = track.geometry.coordinates[0];
     });
 }
 
 async function recreateIndex() {
     console.log(`Create index "${tracksIndexName}"`);
-    await esClient.indices.create({
-        index: tracksIndexName,
-        body: {
-            mappings: {
-                "properties": {
-                    'location': {
-                        "type": 'geo_point',
-                        "ignore_malformed": true
-                    },
-                    "entity_id": {
-                        "type": "keyword"
-                    },
-                    "@timestamp": {
-                        "type": "date"
+    try {
+        await esClient.indices.create({
+            index: tracksIndexName,
+            body: {
+                mappings: {
+                    "properties": {
+                        'location': {
+                            "type": 'geo_point',
+                            "ignore_malformed": true
+                        },
+                        "entity_id": {
+                            "type": "keyword"
+                        },
+                        "azimuth": {
+                            "type": "double"
+                        },
+                        "speed": {
+                            "type": "double"
+                        },
+                        "@timestamp": {
+                            "type": "date"
+                        }
                     }
                 }
             }
-        }
-    });
+        });
+    } catch (e) {
+        console.error(e.body.error);
+        throw e;
+    }
 }
 
 async function setupIndex() {
@@ -145,7 +158,7 @@ async function setupIndex() {
             }
 
         } catch (e) {
-            console.error(e);
+            console.error(e.message);
             reject(e);
         }
     });
@@ -163,7 +176,6 @@ async function generateWaypoints() {
         const trackId = track.id || i;
 
         const timeStamp = new Date();
-
 
         let wayPointES;
         if (track.properties.__reset) {
@@ -193,10 +205,19 @@ async function generateWaypoints() {
             wayPointES = wayPointFeature.geometry.coordinates;
         }
 
-        console.log(`\t update track: \t${trackId} - ${wayPointES}`)
+        //Use azimuth in web mercator for better display in Maps.
+        const from = turf.toMercator(track.properties.__lastWayPoint);
+        const to = turf.toMercator(wayPointES);
+        const azimuth = azimuthInDegrees(from[0], from[1], to[0], to[1]);
+
+
+
         const doc = {
+            // azimuth: azimuth,
+            azimuth: (azimuth * -1) + 90, // hack to use 2D semantics (probable bug in maps https://github.com/elastic/kibana/issues/77496)
             location: wayPointES,
             entity_id: trackId,
+            speed: speedInUnitsPerHour,
             "@timestamp": timeStamp.toISOString(),
         };
 
@@ -206,6 +227,7 @@ async function generateWaypoints() {
         });
 
         track.properties.__lastUpdate = timeStamp.getTime();
+        track.properties.__lastWayPoint = wayPointES.slice();
     }
 
     tickCounter++;
@@ -214,5 +236,5 @@ async function generateWaypoints() {
 }
 
 function azimuthInDegrees(x1, y1, x2, y2) {
-    return Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+    return (Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI) ;
 }
