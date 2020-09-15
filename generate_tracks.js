@@ -170,6 +170,9 @@ async function generateWaypoints() {
 
     console.log(`[${tickCounter}-------------- GENERATE WAYPOINTS AT TICK ${(new Date()).toISOString()}`);
 
+
+    const bulkInsert = [];
+
     for (let i = 0; i < tracksFeatureCollection.features.length; i++) {
 
         const track = tracksFeatureCollection.features[i];
@@ -197,7 +200,6 @@ async function generateWaypoints() {
                 track.properties.__distanceTraveled = targetDistance;
             } else {
                 targetDistance = track.properties.__length;
-                console.log('Reset track ' + trackId);
                 track.properties.__reset = true;
                 track.properties.__distanceTraveled = 0;
             }
@@ -210,8 +212,6 @@ async function generateWaypoints() {
         const to = turf.toMercator(wayPointES);
         const azimuth = azimuthInDegrees(from[0], from[1], to[0], to[1]);
 
-
-
         const doc = {
             // azimuth: azimuth,
             azimuth: (azimuth * -1) + 90, // hack to use 2D semantics (probable bug in maps https://github.com/elastic/kibana/issues/77496)
@@ -221,16 +221,22 @@ async function generateWaypoints() {
             "@timestamp": timeStamp.toISOString(),
         };
 
-        await esClient.index({
-            index: tracksIndexName,
-            body: doc
-        });
-
         track.properties.__lastUpdate = timeStamp.getTime();
         track.properties.__lastWayPoint = wayPointES.slice();
+
+        bulkInsert.push({
+            index: {
+                _index: tracksIndexName,
+            }
+        });
+        bulkInsert.push(doc);
     }
 
     tickCounter++;
+
+    await esClient.bulk({
+        body: bulkInsert
+    });
     setTimeout(generateWaypoints, updateDelta);
 
 }
