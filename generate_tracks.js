@@ -5,10 +5,11 @@ const turf = require('@turf/turf');
 const yargs = require('yargs')
 
 
-const DEFAULT_TRACKS_JSON = 'tracks.json';
+const DEFAULT_TRACKS_JSON = 'manhattantrack.json';
 const DEFAULT_INDEX_NAME = 'tracks';
 const DEFAULT_UPDATE_DELTA = 500;
-const DEFAULT_SPEED = 100000 * 5;
+const DEFAULT_SPEED = 40;
+const DEFAULT_HOST = `http://localhost:9200`;
 const distanceUnit = 'miles';
 
 const argv = yargs
@@ -36,6 +37,12 @@ const argv = yargs
         type: 'number',
         default: DEFAULT_UPDATE_DELTA,
     })
+    .option('host', {
+        alias :'h',
+        description: 'URL of the elasticsearch server',
+        type: 'string',
+        default: DEFAULT_HOST,
+    })
     .help()
     .argv;
 
@@ -44,10 +51,8 @@ const tracksIndexName = argv.index;
 const updateDelta = argv.frequency; //milliseconds
 const speedInUnitsPerHour = argv.speed; //units / per hour
 
-
 const trackRaw = fs.readFileSync(trackFileName, 'utf-8');
 const tracksFeatureCollection = JSON.parse(trackRaw);
-
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -55,8 +60,7 @@ const rl = readline.createInterface({
 });
 
 const esClient = new Client({
-    node: 'http://localhost:9200',
-    // node: 'https://localhost:9200',
+    node: argv.host,
     auth: {
         username: 'elastic',
         password: 'changeme'
@@ -65,6 +69,13 @@ const esClient = new Client({
         rejectUnauthorized: false
     }
 });
+
+async function init() {
+    initTrackMeta();
+    await setupIndex();
+    generateWaypoints();
+}
+init();
 
 function initTrackMeta() {
     tracksFeatureCollection.features.forEach((track) => {
@@ -116,7 +127,6 @@ async function setupIndex() {
 
             if (body) {
                 rl.question(`Index "${tracksIndexName}" exists. Should delete and recreate? [n|Y]`, async function (response) {
-                    console.log('re', response);
                     if (response === 'y' || response === 'Y') {
                         console.log(`Deleting index "${tracksIndexName}"`);
                         await esClient.indices.delete({
@@ -157,8 +167,12 @@ async function generateWaypoints() {
 
         let wayPointES;
         if (track.properties.__reset) {
+            track.geometry.coordinates.reverse();// make track drive other direction
             wayPointES = track.geometry.coordinates[0];
-            track.properties.__reset = false;
+
+            if (tickCounter !== 0) {
+                track.properties.__reset = false;
+            }
         } else {
             const delta = timeStamp.getTime() - track.properties.__lastUpdate;
             const deltaInHours = delta / (1000 * 60 * 60);
@@ -180,7 +194,6 @@ async function generateWaypoints() {
         }
 
         console.log(`\t update track: \t${trackId} - ${wayPointES}`)
-
         const doc = {
             location: wayPointES,
             entity_id: trackId,
@@ -200,10 +213,6 @@ async function generateWaypoints() {
 
 }
 
-async function init() {
-    initTrackMeta();
-    await setupIndex();
-    generateWaypoints();
+function azimuthInDegrees(x1, y1, x2, y2) {
+    return Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
 }
-
-init();
