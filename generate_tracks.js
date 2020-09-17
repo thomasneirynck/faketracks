@@ -5,11 +5,11 @@ const turf = require('@turf/turf');
 const yargs = require('yargs')
 
 
-const DEFAULT_TRACKS_JSON = 'manhattantrack.json';
+const DEFAULT_TRACKS_JSON = 'manhattan_tracks.json';
 const DEFAULT_INDEX_NAME = 'tracks';
-const DEFAULT_UPDATE_DELTA = 500;
-const DEFAULT_SPEED = 40;
-const DEFAULT_HOST = `http://localhost:9200`;
+const DEFAULT_UPDATE_DELTA = 1000; //ms
+const DEFAULT_SPEED = 40; //mph
+const DEFAULT_HOST = `https://localhost:9200`;
 const distanceUnit = 'miles';
 
 const argv = yargs
@@ -168,7 +168,7 @@ let tickCounter = 0;
 
 async function generateWaypoints() {
 
-    console.log(`[${tickCounter}-------------- GENERATE WAYPOINTS AT TICK ${(new Date()).toISOString()}`);
+    console.log(`[${tickCounter}-------------- GENERATE ${tracksFeatureCollection.features.length} WAYPOINTS AT TICK ${(new Date()).toISOString()}`);
 
 
     const bulkInsert = [];
