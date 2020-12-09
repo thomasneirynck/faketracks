@@ -8,11 +8,19 @@ const yargs = require('yargs')
 const DEFAULT_TRACKS_JSON = 'manhattan_tracks.json';
 const DEFAULT_INDEX_NAME = 'tracks';
 const DEFAULT_UPDATE_DELTA = 1000; //ms
+const DEFAULT_TIME_JIGGER = DEFAULT_UPDATE_DELTA * 3;
 const DEFAULT_SPEED = 40; //mph
 const DEFAULT_HOST = `https://localhost:9200`;
+const DEFAULT_OMIT_RANDOM_FEATURE = false;
 const distanceUnit = 'miles';
 
 const argv = yargs
+    .option('timeJigger', {
+        alias: 'j',
+        description: 'Delay time for time <j>',
+        type: 'number',
+        default: DEFAULT_TIME_JIGGER,
+    })
     .option('tracks', {
         alias: 't',
         description: 'path to the tracks geojson file. This is a FeatureCollection with only linestrings',
@@ -37,6 +45,12 @@ const argv = yargs
         type: 'number',
         default: DEFAULT_UPDATE_DELTA,
     })
+    .option('omitRandomFeature', {
+        alias: 'o',
+        description: 'Omits updates for a random feature for 3 cycles',
+        type: 'boolean',
+        default: DEFAULT_OMIT_RANDOM_FEATURE,
+    })
     .option('host', {
         alias: 'h',
         description: 'URL of the elasticsearch server',
@@ -49,6 +63,7 @@ const argv = yargs
 const trackFileName = argv.tracks;
 const tracksIndexName = argv.index;
 const updateDelta = argv.frequency; //milliseconds
+const timeJigger = argv.timeJigger;
 const speedInUnitsPerHour = argv.speed; //units / per hour
 
 const trackRaw = fs.readFileSync(trackFileName, 'utf-8');
@@ -110,7 +125,10 @@ async function recreateIndex() {
                         },
                         "@timestamp": {
                             "type": "date"
-                        }
+                        },
+                        "time_jigger": {
+                            "type": "date"
+                        },
                     }
                 }
             }
@@ -165,15 +183,31 @@ async function setupIndex() {
 }
 
 let tickCounter = 0;
+let cycleCounter = 4;
+let featureToOmit = 0;
 
 async function generateWaypoints() {
 
     console.log(`[${tickCounter}-------------- GENERATE ${tracksFeatureCollection.features.length} WAYPOINTS AT TICK ${(new Date()).toISOString()}`);
 
+    if (argv.omitRandomFeature) {
+        if (cycleCounter > 3) {
+            cycleCounter = 1;
+            featureToOmit = Math.floor(Math.random() * Math.floor(tracksFeatureCollection.features.length));
+        }
+        console.log(`Omitting feature: ${featureToOmit}, cycle: ${cycleCounter} of 3`);
+        cycleCounter++;
+    }
+
 
     const bulkInsert = [];
 
     for (let i = 0; i < tracksFeatureCollection.features.length; i++) {
+        if (argv.omitRandomFeature) {
+            if (i === featureToOmit) {
+                continue;
+            }
+        }
 
         const track = tracksFeatureCollection.features[i];
         const trackId = track.id || i;
@@ -211,6 +245,7 @@ async function generateWaypoints() {
         const from = turf.toMercator(track.properties.__lastWayPoint);
         const to = turf.toMercator(wayPointES);
         const azimuth = azimuthInDegrees(from[0], from[1], to[0], to[1]);
+        const timeJiggerIsoString = (new Date((Date.now() - timeJigger * Math.random()))).toISOString();
 
         const doc = {
             // azimuth: azimuth,
@@ -219,6 +254,7 @@ async function generateWaypoints() {
             entity_id: trackId,
             speed: speedInUnitsPerHour,
             "@timestamp": timeStamp.toISOString(),
+            time_jigger: timeJiggerIsoString,
         };
 
         track.properties.__lastUpdate = timeStamp.getTime();
