@@ -10,7 +10,7 @@ const DEFAULT_INDEX_NAME = 'tracks';
 const DEFAULT_UPDATE_DELTA = 1000; //ms
 const DEFAULT_TIME_JIGGER = DEFAULT_UPDATE_DELTA * 3;
 const DEFAULT_SPEED = 40; //mph
-const DEFAULT_HOST = `https://localhost:9200`;
+const DEFAULT_HOST = `http://localhost:9200`;
 const DEFAULT_OMIT_RANDOM_FEATURE = false;
 const distanceUnit = 'miles';
 
