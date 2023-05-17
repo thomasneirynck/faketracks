@@ -12,6 +12,7 @@ const DEFAULT_TIME_JIGGER = DEFAULT_UPDATE_DELTA * 3;
 const DEFAULT_SPEED = 40; //mph
 const DEFAULT_HOST = `http://localhost:9200`;
 const DEFAULT_OMIT_RANDOM_FEATURE = false;
+const DEFAULT_TIME_SERIES = false;
 const distanceUnit = 'miles';
 
 const argv = yargs
@@ -57,6 +58,12 @@ const argv = yargs
         type: 'string',
         default: DEFAULT_HOST,
     })
+    .option('isTimeSeries', {
+        alias: 'ts',
+        description: 'When true, events stored in time series index with dimension: entity_id, metric: location',
+        type: 'boolean',
+        default: DEFAULT_TIME_SERIES,
+    })
     .help()
     .argv;
 
@@ -65,6 +72,7 @@ const tracksIndexName = argv.index;
 const updateDelta = argv.frequency; //milliseconds
 const timeJigger = argv.timeJigger;
 const speedInUnitsPerHour = argv.speed; //units / per hour
+const isTimeSeries = argv.isTimeSeries;
 
 const trackRaw = fs.readFileSync(trackFileName, 'utf-8');
 const tracksFeatureCollection = JSON.parse(trackRaw);
@@ -104,30 +112,35 @@ function initTrackMeta() {
 
 async function recreateIndex() {
     console.log(`Create index "${tracksIndexName}"`);
+    if (isTimeSeries) {
+        console.log('time series dimension: entity_id, metric: location');
+    }
     try {
         await esClient.indices.create({
             index: tracksIndexName,
             body: {
                 mappings: {
-                    "properties": {
-                        'location': {
-                            "type": 'geo_point',
-                            "ignore_malformed": true
+                    properties: {
+                        location: {
+                            type: 'geo_point',
+                            ignore_malformed: true,
+                            ...(isTimeSeries ? { time_series_metric: 'position' } : {}),
                         },
-                        "entity_id": {
-                            "type": "keyword"
+                        entity_id: {
+                            type: "keyword",
+                            ...(isTimeSeries ? { time_series_dimension: true } : {}),
                         },
-                        "azimuth": {
-                            "type": "double"
+                        azimuth: {
+                            type: "double"
                         },
-                        "speed": {
-                            "type": "double"
+                        speed: {
+                            type: "double"
                         },
-                        "@timestamp": {
+                        '@timestamp': {
                             "type": "date"
                         },
-                        "time_jigger": {
-                            "type": "date"
+                        time_jigger: {
+                            type: "date"
                         },
                     }
                 }
