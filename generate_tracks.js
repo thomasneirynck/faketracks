@@ -12,6 +12,7 @@ const DEFAULT_TIME_JIGGER = DEFAULT_UPDATE_DELTA * 3;
 const DEFAULT_SPEED = 40; //mph
 const DEFAULT_HOST = `http://localhost:9200`;
 const DEFAULT_OMIT_RANDOM_FEATURE = false;
+const DEFAULT_TIME_SERIES = false;
 const distanceUnit = 'miles';
 
 const argv = yargs
@@ -57,6 +58,12 @@ const argv = yargs
         type: 'string',
         default: DEFAULT_HOST,
     })
+    .option('isTimeSeries', {
+        alias: 'ts',
+        description: 'When true, events stored in time series index with dimension: entity_id, metric: location',
+        type: 'boolean',
+        default: DEFAULT_TIME_SERIES,
+    })
     .help()
     .argv;
 
@@ -65,6 +72,7 @@ const tracksIndexName = argv.index;
 const updateDelta = argv.frequency; //milliseconds
 const timeJigger = argv.timeJigger;
 const speedInUnitsPerHour = argv.speed; //units / per hour
+const isTimeSeries = argv.isTimeSeries;
 
 const trackRaw = fs.readFileSync(trackFileName, 'utf-8');
 const tracksFeatureCollection = JSON.parse(trackRaw);
@@ -104,30 +112,47 @@ function initTrackMeta() {
 
 async function recreateIndex() {
     console.log(`Create index "${tracksIndexName}"`);
+    if (isTimeSeries) {
+        console.log('time series dimension: entity_id, metric: location');
+    }
     try {
         await esClient.indices.create({
             index: tracksIndexName,
             body: {
+                settings: {
+                  ...(isTimeSeries
+                    ? {
+                        mode: 'time_series',
+                        routing_path: ['entity_id'],
+                      }
+                    : {}),
+                },
                 mappings: {
-                    "properties": {
-                        'location': {
-                            "type": 'geo_point',
-                            "ignore_malformed": true
+                    properties: {
+                        location: {
+                            type: 'geo_point',
+                            ...(isTimeSeries 
+                              ? { time_series_metric: 'position' } 
+                              : {
+                                  // time_series geo_point does not support ignore_malformed
+                                  ignore_malformed: true 
+                                }),
                         },
-                        "entity_id": {
-                            "type": "keyword"
+                        entity_id: {
+                            type: "keyword",
+                            ...(isTimeSeries ? { time_series_dimension: true } : {}),
                         },
-                        "azimuth": {
-                            "type": "double"
+                        azimuth: {
+                            type: "double"
                         },
-                        "speed": {
-                            "type": "double"
+                        speed: {
+                            type: "double"
                         },
-                        "@timestamp": {
+                        '@timestamp': {
                             "type": "date"
                         },
-                        "time_jigger": {
-                            "type": "date"
+                        time_jigger: {
+                            type: "date"
                         },
                     }
                 }
@@ -251,7 +276,7 @@ async function generateWaypoints() {
             // azimuth: azimuth,
             azimuth: (azimuth * -1) + 90, // hack to use 2D semantics (probable bug in maps https://github.com/elastic/kibana/issues/77496)
             location: wayPointES,
-            entity_id: trackId,
+            entity_id: trackId.toString(), // timeseries requires strings
             speed: speedInUnitsPerHour,
             "@timestamp": timeStamp.toISOString(),
             time_jigger: timeJiggerIsoString,
@@ -270,9 +295,20 @@ async function generateWaypoints() {
 
     tickCounter++;
 
-    await esClient.bulk({
-        body: bulkInsert
-    });
+    try {
+      const resp = await esClient.bulk({
+          body: bulkInsert
+      });
+      if (resp.body.errors) {
+        const itemErrors = resp.body.items
+          .filter(item => item.status !== 200)
+          .forEach(item => {
+            console.warn('waypoint insert failed, response: ' + JSON.stringify(item, null, ''));
+          });
+      }
+    } catch(e) {
+      console.warn('Bulk insert failed, error: ' + e.message);
+    }
     setTimeout(generateWaypoints, updateDelta);
 
 }
